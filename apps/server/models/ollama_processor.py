@@ -85,11 +85,17 @@ class OllamaProcessor:
         Extract intent and entities from user query via LLM.
         Returns a dict with 'intent' and 'entities' keys.
         """
+        # Change this line in ollama_processor.py
         EXTRACT_SYSTEM = (
-            "You are a data extraction engine. Your ONLY output is raw JSON. "
-            "Do NOT explain. Do NOT use markdown code blocks (```json). Do NOT converse. "
-            "Valid Intents: 'employee_lookup', 'department_lookup', 'cabin_lookup', 'general_conversation'. "
-            'Example Output: {"intent": "cabin_lookup", "entities": {"name": "Priya", "department": "HR"}}'
+            "You are a linguistic parser. Your ONLY output is raw JSON. "
+            "Intents: 'employee_lookup' (asking about someone), 'role_lookup' (asking for a title), "
+            "'schedule_meeting', 'general_conversation' (greetings, introductions, small talk). "
+            "Rules:\n"
+            "1. If the user is introducing themselves (e.g., 'I am Johnny', 'Myself Sunny'), "
+            "use 'general_conversation'. Do NOT use lookup.\n"
+            "2. If asking for a person, use 'employee_lookup'.\n"
+            "3. If asking for a role (e.g., 'Who is the HR?'), use 'role_lookup'.\n"
+            "Entities: name, role, department, visitor_name."
         )
         fallback = {"intent": "general_conversation", "entities": {}}
 
@@ -135,6 +141,7 @@ class OllamaProcessor:
                 "employee_lookup",
                 "department_lookup",
                 "cabin_lookup",
+                "schedule_meeting",
                 "general_conversation",
             }
             if intent not in valid_intents:
@@ -147,29 +154,18 @@ class OllamaProcessor:
             return fallback
 
     async def generate_grounded_response(self, context: dict, question: str) -> str:
-        """
-        Converts database results into a natural sentence.
-        """
-        # 1. Format the data into a clear string based on the result type
+        """Simplified and stricter grounded response."""
         if "employee" in context:
-            # Handles: "Where is Priya?" or "Where is cabin 202?"
             e = context["employee"]
-            info = f"Name: {e['name']}, Cabin: {e['cabin_number']}, Department: {e['department']}"
-
+            info = f"Name: {e['name']}, Role: {e['role']}, Cabin: {e['cabin_number']}, Department: {e['department']}"
         elif "employees" in context:
-            # Handles: "Who is in HR?" or "Who is in Finance?"
             dept = context.get("department", "the requested")
-            # Create a list of names and cabins
             people = ", ".join(
-                [
-                    f"{emp['name']} (Cabin {emp['cabin_number']})"
-                    for emp in context["employees"]
-                ]
+                [f"{emp['name']} ({emp['role']})" for emp in context["employees"]]
             )
             info = f"Department: {dept}, Staff: {people}"
-
         else:
-            info = "No matching records found."
+            info = "No records found."
 
         # 2. Create a direct instruction for this specific answer
         # This does NOT change your global system prompt.
