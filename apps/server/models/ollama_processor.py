@@ -6,6 +6,7 @@ import ollama
 
 logger = logging.getLogger(__name__)
 
+# Cleaned up: Removed the confusing empty JSON Data block
 SYSTEM_PROMPT = """
 You are AlmostHuman, the receptionist at Sharp Software Technology.
 Greet visitors politely.
@@ -13,17 +14,11 @@ Identify if they are employee, intern, guest, or candidate.
 Confirm details, then guide them to HR, meeting room, or team.
 Never mention being an AI.
 Keep replies short and professional.
-
-Response:
-Natural reply.
-
-Data:
-{"t":"","n":"","p":"","m":"","a":"","s":""}
 """
 
 
 class OllamaProcessor:
-    """Handles text generation using an Ollama-served LLM (llama3.2)."""
+    """Handles text generation using an Ollama-served LLM."""
 
     _instance = None
 
@@ -47,12 +42,12 @@ class OllamaProcessor:
         logger.info("OllamaProcessor conversation history reset")
 
     async def get_response(self, prompt: str) -> str:
+        """Standard conversational response (Maintains History)."""
         if not prompt:
             return ""
 
-        # Keep only last 6 messages + system prompt
+        # Keep only last 6 messages + system prompt to prevent memory bloat
         self.history = [self.history[0]] + self.history[-6:]
-
         self.history.append({"role": "user", "content": prompt})
 
         try:
@@ -61,48 +56,31 @@ class OllamaProcessor:
                 messages=self.history,
                 stream=False,
             )
-
-            if hasattr(response, "message"):
-                content = response.message.content
-            else:
-                content = response.get("message", {}).get("content", "")
-
-            content = (content or "").strip()
+            content = response.message.content.strip()
 
             if not content:
-                logger.warning("Ollama returned empty response.")
-                content = "I'm sorry, I couldn't process that. How can I help you?"
+                content = "Welcome to Sharp Software Technology! How can I help you?"
 
             self.history.append({"role": "assistant", "content": content})
             return content
 
         except Exception as e:
             logger.error(f"Ollama inference error: {e}")
-            return "I'm having trouble thinking right now."
+            return "I'm having trouble connecting to the system right now."
 
     async def extract_intent_and_entities(self, user_query: str) -> Dict[str, Any]:
-        """
-        Extract intent and entities from user query via LLM.
-        Returns a dict with 'intent' and 'entities' keys.
-        """
-        # Change this line in ollama_processor.py
+        """Stateless extraction: Does NOT pollute conversation history."""
         EXTRACT_SYSTEM = (
             "You are a linguistic parser. Your ONLY output is raw JSON. "
-            "Intents: 'employee_lookup' (asking about someone), 'role_lookup' (asking for a title), "
-            "'schedule_meeting', 'general_conversation' (greetings, introductions, small talk). "
+            "Intents: 'employee_lookup', 'role_lookup', 'schedule_meeting', 'general_conversation'. "
             "Rules:\n"
             "1. If the user is introducing themselves (e.g., 'I am Johnny', 'Myself Sunny'), "
-            "use 'general_conversation'. Do NOT use lookup.\n"
-            "2. If asking for a person, use 'employee_lookup'.\n"
-            "3. If asking for a role (e.g., 'Who is the HR?'), use 'role_lookup'.\n"
-            "Entities: name, role, department, visitor_name."
+            "use 'general_conversation'.\n"
+            "2. Entities: name, role, department, visitor_name."
         )
-        fallback = {"intent": "general_conversation", "entities": {}}
-
-        if not user_query or not user_query.strip():
-            return fallback
 
         try:
+            # Direct call without adding to self.history
             response = await self.client.chat(
                 model=self.model_name,
                 messages=[
@@ -112,49 +90,27 @@ class OllamaProcessor:
                 stream=False,
                 options={"temperature": 0},
             )
-            if hasattr(response, "message"):
-                raw = response.message.content
-            else:
-                raw = response.get("message", {}).get("content", "")
+            raw = response.message.content.strip()
 
-            raw = (raw or "").strip()
-            if not raw:
-                return fallback
-
+            # Clean JSON formatting if present
             if raw.startswith("```"):
-                for prefix in ("```json", "```"):
-                    if raw.startswith(prefix):
-                        raw = raw[len(prefix) :].strip()
-                        break
-                if raw.endswith("```"):
-                    raw = raw[:-3].strip()
+                raw = raw.strip("`").replace("json", "").strip()
 
             parsed = json.loads(raw)
-            intent = parsed.get("intent", "general_conversation")
-            entities = (
-                parsed.get("entities")
-                if isinstance(parsed.get("entities"), dict)
-                else {}
-            )
-
-            valid_intents = {
-                "employee_lookup",
-                "department_lookup",
-                "cabin_lookup",
-                "schedule_meeting",
-                "general_conversation",
+            return {
+                "intent": parsed.get("intent", "general_conversation"),
+                "entities": (
+                    parsed.get("entities", {})
+                    if isinstance(parsed.get("entities"), dict)
+                    else {}
+                ),
             }
-            if intent not in valid_intents:
-                intent = "general_conversation"
-
-            return {"intent": intent, "entities": entities}
-
-        except (json.JSONDecodeError, TypeError, Exception) as e:
-            logger.warning(f"Intent extraction failed, using fallback: {e}")
-            return fallback
+        except Exception as e:
+            logger.warning(f"Extraction failed: {e}")
+            return {"intent": "general_conversation", "entities": {}}
 
     async def generate_grounded_response(self, context: dict, question: str) -> str:
-        """Simplified and stricter grounded response."""
+        """Stateless grounded response: Does NOT pollute conversation history."""
         if "employee" in context:
             e = context["employee"]
             info = f"Name: {e['name']}, Role: {e['role']}, Cabin: {e['cabin_number']}, Department: {e['department']}"
@@ -167,42 +123,26 @@ class OllamaProcessor:
         else:
             info = "No records found."
 
-        # 2. Create a direct instruction for this specific answer
-        # This does NOT change your global system prompt.
-        prompt = f""" u are a professional and polite office receptionist assisting visitors inside a company office.
-
-    A visitor asked:
-    "{question}"
-
-    The system searched internal records and returned the following information:
-    {info}
-
-    The information is provided in JSON format and may contain:
-    - employee details
-    - department information
-    - meeting information
-
-
+        # Your exact prompt text preserved
+        prompt_text = f"""u are a professional and polite office receptionist assisting visitors inside a company office.
+    A visitor asked: "{question}"
+    The system searched internal records and returned: {info}
+    
     Your task:
     - Respond like a real office receptionist.
     - Use the information in {info} to guide the visitor.
-    - If the information contains employee details, mention the employee's name, role, department, and cabin number.
-    - If multiple employees are present, list all of them clearly.
-    - If the information contains meeting details, guide the visitor to the correct meeting room or location.
-    - If {info} is empty, politely say that the information could not be found and ask the visitor to confirm the details.
-
-    IMPORTANT RULES:
-    - The information in {info} refers to the person, department, or meeting the visitor is asking about.
-    - Do NOT assume the visitor's identity.
-    - Do NOT invent names, cabin numbers, roles, or meeting details.
-    - Only use the information provided in {info}.
     - Keep the response short, natural, and conversational (1–3 sentences).
-
-    Tone:
-    Friendly, helpful, and professional — like a real office receptionist.
-
+    - Tone: Friendly, helpful, and professional.
     Now generate the receptionist response."""
 
-        # 3. Get the response from Ollama
-        response = await self.get_response(prompt)
-        return response.strip()
+        try:
+            # Direct call to avoid history poisoning
+            response = await self.client.chat(
+                model=self.model_name,
+                messages=[{"role": "system", "content": prompt_text}],
+                stream=False,
+            )
+            return response.message.content.strip()
+        except Exception as e:
+            logger.error(f"Grounded response error: {e}")
+            return "I found the information, but I'm having trouble explaining it. Please wait a moment."

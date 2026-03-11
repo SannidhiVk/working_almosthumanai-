@@ -15,19 +15,10 @@ class Employee(Base):
 
 
 class Meeting(Base):
-    __tablename__ = "meetings"
-
-    id = Column(Integer, primary_key=True)
-    employee_name = Column(String)
-    visitor_name = Column(String)
-    meeting_time = Column(DateTime)
-
-
-class Visitor(Base):
     __tablename__ = "visitors"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String)
-    meeting_with = Column(String)
-    checkin_time = Column(DateTime, default=datetime.utcnow)
-    status = Column(String, default="Checked-In")
+    visitor_name = Column("name", String)
+    employee_name = Column("meeting_with", String)
+    meeting_time = Column("checkin_time", DateTime, default=datetime.utcnow)
+    status = Column(String, default="Arrived")

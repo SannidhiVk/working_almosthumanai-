@@ -66,13 +66,22 @@ def seed_database():
 
     meetings = [
         Meeting(
-            employee_name="Arjun", visitor_name="Rahul", meeting_time=datetime.now()
+            employee_name="Arjun",
+            visitor_name="Rahul",
+            meeting_time=datetime.now(),
+            status="Meeting Scheduled",
         ),
         Meeting(
-            employee_name="Meera", visitor_name="Anita", meeting_time=datetime.now()
+            employee_name="Meera",
+            visitor_name="Anita",
+            meeting_time=datetime.now(),
+            status="Meeting Scheduled",
         ),
         Meeting(
-            employee_name="Rohit", visitor_name="Kiran", meeting_time=datetime.now()
+            employee_name="Rohit",
+            visitor_name="Kiran",
+            meeting_time=datetime.now(),
+            status="Meeting Scheduled",
         ),
     ]
 

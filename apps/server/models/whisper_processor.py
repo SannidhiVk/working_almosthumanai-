@@ -26,7 +26,7 @@ class WhisperProcessor:
         )
         # Threshold for raw audio volume (0.0 to 1.0)
         # If the average volume is below this, we don't even transcribe.
-        self.MIN_ENERGY_THRESHOLD = 0.005
+        self.MIN_ENERGY_THRESHOLD = 0.004
 
         # Common Whisper hallucinations during silence
 
